@@ -33,7 +33,10 @@ from .utils.rotation_converter import batch_euler2axis
 from .utils.tensor_cropper import transform_points
 from .datasets import datasets
 from .utils.config import cfg
+import openmesh, trimesh, joblib
+import pytorch3d.utils
 torch.backends.cudnn.benchmark = True
+import pdb
 
 class DECA(nn.Module):
     def __init__(self, config=None, device='cuda'):
@@ -164,48 +167,80 @@ class DECA(nn.Module):
         batch_size = images.shape[0]
 
         ## decode
-        verts, landmarks2d, landmarks3d = self.flame(shape_params=codedict['shape'], expression_params=codedict['exp'], pose_params=codedict['pose'])
+        verts, _, _ = self.flame(shape_params=codedict['shape'], expression_params=codedict['exp'], pose_params=codedict['pose'])
+        
+        
+        d = joblib.load('/root/diffusion-rig/122.pkl')
+        gt_verts = openmesh.read_trimesh('/root/diffusion-rig/fit_scan_result.obj').points() / d['scale']
+        FACESCAPE_2_CAPSTUDIO = np.array([[1., 0., 0.], [0., 0., -1.], [0., 1., 0]])
+        gt_verts = (FACESCAPE_2_CAPSTUDIO @ gt_verts.T).T
+        gt_verts /= 1000
+        
+        gt_verts = torch.from_numpy(gt_verts).float().cuda().unsqueeze(0)
+        
+        
+        
+        mesh = trimesh.Trimesh(verts[0].detach().cpu().numpy(), self.render.faces[0].cpu().numpy())
+        mesh.export('./deca_verts.obj')
+        
+        # if (align_ffhq and ffhq_center is not None) or return_ffhq_center:
+        #     lm_eye_left = landmarks2d[:, 36:42]  # left-clockwise
+        #     lm_eye_right = landmarks2d[:, 42:48]  # left-clockwise
+        #     lm_mouth_outer = landmarks2d[:, 48:60]  # left-clockwise
 
-        if (align_ffhq and ffhq_center is not None) or return_ffhq_center:
-            lm_eye_left = landmarks2d[:, 36:42]  # left-clockwise
-            lm_eye_right = landmarks2d[:, 42:48]  # left-clockwise
-            lm_mouth_outer = landmarks2d[:, 48:60]  # left-clockwise
-
-            eye_left = torch.mean(lm_eye_left, dim=1)
-            eye_right = torch.mean(lm_eye_right, dim=1)
-            eye_avg = (eye_left + eye_right) * 0.5
-            # eye_to_eye = eye_right - eye_left
-            mouth_left = lm_mouth_outer[:, 0]
-            mouth_right = lm_mouth_outer[:, 6]
-            mouth_avg = (mouth_left + mouth_right) * 0.5
-            eye_to_mouth = mouth_avg - eye_avg
+        #     eye_left = torch.mean(lm_eye_left, dim=1)
+        #     eye_right = torch.mean(lm_eye_right, dim=1)
+        #     eye_avg = (eye_left + eye_right) * 0.5
+        #     # eye_to_eye = eye_right - eye_left
+        #     mouth_left = lm_mouth_outer[:, 0]
+        #     mouth_right = lm_mouth_outer[:, 6]
+        #     mouth_avg = (mouth_left + mouth_right) * 0.5
+        #     eye_to_mouth = mouth_avg - eye_avg
             
-            center = eye_avg + eye_to_mouth * 0.1
+        #     center = eye_avg + eye_to_mouth * 0.1
 
-            if return_ffhq_center:
-                return center
+        #     if return_ffhq_center:
+        #         return center
 
-            if align_ffhq:
-                delta = ffhq_center - center
-                verts = verts + delta
+        #     if align_ffhq:
+        #         delta = ffhq_center - center
+        #         verts = verts + delta
 
         if self.cfg.model.use_tex:
             albedo = self.flametex(codedict['tex'])
         else:
             albedo = torch.zeros([batch_size, 3, self.uv_size, self.uv_size], device=images.device) 
-        landmarks3d_world = landmarks3d.clone()
+        # landmarks3d_world = landmarks3d.clone()
 
         ## projection
-        landmarks2d = util.batch_orth_proj(landmarks2d, codedict['cam'])[:,:,:2]; landmarks2d[:,:,1:] = -landmarks2d[:,:,1:]#; landmarks2d = landmarks2d*self.image_size/2 + self.image_size/2
-        landmarks3d = util.batch_orth_proj(landmarks3d, codedict['cam']); landmarks3d[:,:,1:] = -landmarks3d[:,:,1:] #; landmarks3d = landmarks3d*self.image_size/2 + self.image_size/2
-
+        # landmarks2d = util.batch_orth_proj(landmarks2d, codedict['cam'])[:,:,:2]; landmarks2d[:,:,1:] = -landmarks2d[:,:,1:]#; landmarks2d = landmarks2d*self.image_size/2 + self.image_size/2
+        # landmarks3d = util.batch_orth_proj(landmarks3d, codedict['cam']); landmarks3d[:,:,1:] = -landmarks3d[:,:,1:] #; landmarks3d = landmarks3d*self.image_size/2 + self.image_size/2
+        
+        
+        
+        # E = torch.tensor([[0.9719624643155794, -0.18034708198134713, 0.15087725251414888, 0.011383163675665706], [0.19284673591450868, 0.24428420579305601, -0.9503343510911982, -0.031210552763414334], [0.13453310130815221, 0.9527854950250327, 0.2722144231355562, 1.666253297609305]]).float().cuda()
+        # K = torch.tensor([[1346.5539394583893, 0.0, 126.64294481052008], [0.0, 1346.5539394583893, 153.3255641386573], [0.0, 0.0, 1.0]]).float().cuda()
+        E = torch.tensor([[0.6819218974525726, 0.731366349278993, 0.009265018633219817, -0.007914815312910644], [-0.23592301815137479, 0.23192804173627382, -0.9436894232516704, -0.0418436104362826], [-0.6923315002366375, 0.6413366427297936, 0.3307029607152419, 2.010363320895975]]).float().cuda()
+        K = torch.tensor([[1802.6994290984458, 0.0, 121.668598243813], [0.0, 1802.6994290984458, 176.30376970592235], [0.0, 0.0, 1.0]]).float().cuda()
+        
+        camera = pytorch3d.utils.cameras_from_opencv_projection(R=E[:3,:3].unsqueeze(0), tvec=E[:3,3].reshape(1,3), camera_matrix=K.unsqueeze(0), image_size=torch.ones(1,2).cuda()*256)
+        # gt_verts_trans = camera.transform_points_ndc(gt_verts)
+        gt_verts_trans = camera.transform_points_screen(gt_verts)
+        # gt_verts_trans = (E[:3,:3]@gt_verts[0].T).T + E[:3,3]
+        # gt_verts_trans = (K@gt_verts_trans.T).T
+        gt_verts_trans[:,:,:2] = gt_verts_trans[:,:,:2] / 256 * 2 - 1
+        # gt_verts_trans = gt_verts_trans.unsqueeze(0)
+        
+        
+        
+        
         trans_verts = util.batch_orth_proj(verts, codedict['cam']); trans_verts[:,:,1:] = -trans_verts[:,:,1:]
         opdict = {
             'verts': verts,
             'trans_verts': trans_verts,
-            'landmarks2d': landmarks2d,
-            'landmarks3d': landmarks3d,
-            'landmarks3d_world': landmarks3d_world,
+            # 'landmarks2d': landmarks2d,
+            # 'landmarks3d': landmarks3d,
+            # 'landmarks3d_world': landmarks3d_world,
         }
 
         ## rendering
@@ -214,14 +249,22 @@ class DECA(nn.Module):
             _, _, h, w = original_image.shape
             # import ipdb; ipdb.set_trace()
             trans_verts = transform_points(trans_verts, tform, points_scale, [h, w])
-            landmarks2d = transform_points(landmarks2d, tform, points_scale, [h, w])
-            landmarks3d = transform_points(landmarks3d, tform, points_scale, [h, w])
+            # landmarks2d = transform_points(landmarks2d, tform, points_scale, [h, w])
+            # landmarks3d = transform_points(landmarks3d, tform, points_scale, [h, w])
             images = original_image
         else:
             h, w = self.image_size, self.image_size
+        
+        gt_verts_trans[:,:,-1] = trans_verts[:,:,-1]
+        
+        mesh = trimesh.Trimesh(gt_verts_trans[0].detach().cpu().numpy(), self.render.faces[0].cpu().numpy())
+        mesh.export('./ours_ndc.obj')
+        
+        convert = torch.tensor([[1,0,0],[0,0,1],[0,-1,0]]).float().cuda()
+        gt_verts = (convert@gt_verts[0].T).T.unsqueeze(0)
 
         if rendering:
-            ops = self.render(verts, trans_verts, albedo, codedict['light'], h=h, w=w, add_light=add_light, th=th, light_type=light_type, render_norm=render_norm)
+            ops = self.render(gt_verts, gt_verts_trans, albedo, codedict['light'], h=h, w=w, add_light=add_light, th=th, light_type=light_type, render_norm=render_norm)
             ## output
             opdict['grid'] = ops['grid']
             opdict['rendered_images'] = ops['images']

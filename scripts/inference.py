@@ -6,6 +6,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 import torch as th
 from glob import glob
+import cv2
 
 from utils.script_util import (
     model_and_diffusion_defaults,
@@ -54,8 +55,8 @@ def create_inter_data(dataset, modes, meanshape_path=""):
             code1 = deca.encode(img1)
 
         # To align the face when the pose is changing
-        ffhq_center = None
-        ffhq_center = deca.decode(code1, return_ffhq_center=True)
+        # ffhq_center = None
+        # ffhq_center = deca.decode(code1, return_ffhq_center=True)
 
         tform = dataset[i]["tform"].unsqueeze(0)
         tform = th.inverse(tform).transpose(1, 2).to("cuda")
@@ -89,7 +90,7 @@ def create_inter_data(dataset, modes, meanshape_path=""):
                 original_image=original_image,
                 tform=code["tform"],
                 align_ffhq=True,
-                ffhq_center=ffhq_center,
+                # ffhq_center=ffhq_center,
             )
 
             origin_rendered = opdict["rendered_images"].detach()
@@ -102,6 +103,13 @@ def create_inter_data(dataset, modes, meanshape_path=""):
             batch["albedo"] = opdict["albedo_images"].detach()
             batch["mode"] = mode
             batch["origin_rendered"] = origin_rendered
+            
+            for k in batch.keys():
+                if k == 'mode':
+                    continue
+                cv2.imwrite(f'./renders/{k}.png', (batch[k].permute(0,2,3,1)[0].detach().cpu().numpy()*255)[:,:,::-1])
+            
+            
             yield batch
 
 
