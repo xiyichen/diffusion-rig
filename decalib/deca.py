@@ -162,7 +162,7 @@ class DECA(nn.Module):
     def decode(self, codedict, rendering=True, iddict=None, vis_lmk=True, return_vis=True, use_detail=True,
                 render_orig=False, original_image=None, tform=None, add_light=True, th=0,
                 align_ffhq=False, return_ffhq_center=False, ffhq_center=None,
-                light_type='point', render_norm=False):
+                light_type='point', render_norm=False, E=None, K=None):
         images = codedict['images']
         batch_size = images.shape[0]
 
@@ -180,8 +180,8 @@ class DECA(nn.Module):
         
         
         
-        mesh = trimesh.Trimesh(verts[0].detach().cpu().numpy(), self.render.faces[0].cpu().numpy())
-        mesh.export('./deca_verts.obj')
+        # mesh = trimesh.Trimesh(verts[0].detach().cpu().numpy(), self.render.faces[0].cpu().numpy())
+        # mesh.export('./deca_verts.obj')
         
         # if (align_ffhq and ffhq_center is not None) or return_ffhq_center:
         #     lm_eye_left = landmarks2d[:, 36:42]  # left-clockwise
@@ -220,8 +220,8 @@ class DECA(nn.Module):
         
         # E = torch.tensor([[0.9719624643155794, -0.18034708198134713, 0.15087725251414888, 0.011383163675665706], [0.19284673591450868, 0.24428420579305601, -0.9503343510911982, -0.031210552763414334], [0.13453310130815221, 0.9527854950250327, 0.2722144231355562, 1.666253297609305]]).float().cuda()
         # K = torch.tensor([[1346.5539394583893, 0.0, 126.64294481052008], [0.0, 1346.5539394583893, 153.3255641386573], [0.0, 0.0, 1.0]]).float().cuda()
-        E = torch.tensor([[0.6819218974525726, 0.731366349278993, 0.009265018633219817, -0.007914815312910644], [-0.23592301815137479, 0.23192804173627382, -0.9436894232516704, -0.0418436104362826], [-0.6923315002366375, 0.6413366427297936, 0.3307029607152419, 2.010363320895975]]).float().cuda()
-        K = torch.tensor([[1802.6994290984458, 0.0, 121.668598243813], [0.0, 1802.6994290984458, 176.30376970592235], [0.0, 0.0, 1.0]]).float().cuda()
+        E = torch.tensor(E).float().cuda()
+        K = torch.tensor(K).float().cuda()
         
         camera = pytorch3d.utils.cameras_from_opencv_projection(R=E[:3,:3].unsqueeze(0), tvec=E[:3,3].reshape(1,3), camera_matrix=K.unsqueeze(0), image_size=torch.ones(1,2).cuda()*256)
         # gt_verts_trans = camera.transform_points_ndc(gt_verts)
@@ -257,11 +257,15 @@ class DECA(nn.Module):
         
         gt_verts_trans[:,:,-1] = trans_verts[:,:,-1]
         
-        mesh = trimesh.Trimesh(gt_verts_trans[0].detach().cpu().numpy(), self.render.faces[0].cpu().numpy())
-        mesh.export('./ours_ndc.obj')
+        # mesh = trimesh.Trimesh(gt_verts_trans[0].detach().cpu().numpy(), self.render.faces[0].cpu().numpy())
+        # mesh.export('./ours_ndc.obj')
         
         convert = torch.tensor([[1,0,0],[0,0,1],[0,-1,0]]).float().cuda()
         gt_verts = (convert@gt_verts[0].T).T.unsqueeze(0)
+        
+        albedo = torch.from_numpy(cv2.imread('/root/diffusion-rig/data/mean_texture.jpg')[:,:,::-1]/255).float().cuda().permute(2,0,1).unsqueeze(0)
+        import torch.nn.functional as F
+        albedo = F.interpolate(albedo, (256,256))
 
         if rendering:
             ops = self.render(gt_verts, gt_verts_trans, albedo, codedict['light'], h=h, w=w, add_light=add_light, th=th, light_type=light_type, render_norm=render_norm)

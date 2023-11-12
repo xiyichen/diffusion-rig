@@ -118,12 +118,29 @@ class TestData(Dataset):
                 'original_image': torch.tensor(image.transpose(2,0,1)).float(),
                 }
 
+    def read_transparent_png(self, filename):
+        image_4channel = cv2.imread(filename, cv2.IMREAD_UNCHANGED)
+        alpha_channel = image_4channel[:,:,3]
+        rgb_channels = image_4channel[:,:,:3]
+
+        # White Background Image
+        white_background_image = np.ones_like(rgb_channels, dtype=np.uint8) * 255
+
+        # Alpha factor
+        alpha_factor = alpha_channel[:,:,np.newaxis].astype(np.float32) / 255.0
+        alpha_factor = np.concatenate((alpha_factor,alpha_factor,alpha_factor), axis=2)
+
+        # Transparent Image Rendered on White Background
+        base = rgb_channels.astype(np.float32) * alpha_factor
+        white = white_background_image.astype(np.float32) * (1 - alpha_factor)
+        final_image = base + white
+        return (final_image).astype(np.uint8)
 
     def __getitem__(self, index):
         
         imagepath = self.imagepath_list[index]
         imagename = os.path.splitext(os.path.split(imagepath)[-1])[0]
-        im = imread(imagepath)
+        im = self.read_transparent_png(imagepath)[:,:,::-1]
 
         if self.size is not None:
             im = (resize(im, (self.size, self.size), anti_aliasing=True) * 255.).astype(np.uint8)
